@@ -1,10 +1,9 @@
 import sys
 
 from PyQt5.Qt import Qt
-from PyQt5.QtGui import QPen, QBrush, QFont
+from PyQt5.QtGui import QPen, QBrush, QFont, QPainter
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsItem, \
     QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QLabel
-from PyQt5.QtCore import QRectF
 from numpy import sqrt, arctan2, degrees, sin, cos, radians
 
 
@@ -168,6 +167,9 @@ class ShipEllipse(QGraphicsEllipseItem):
         pass
 
     def mouseMoveEvent(self, event):
+        # TODO: Sets wrong position sometimes
+        # <Warship A> B-317.0T, R-5171.0yds, C-0.0T, S-0.0kts (-352.7, 378.2)
+        # <Warship A> B-223.0T, R-5130yds, C-0.0T, S-0.0kts (-349.0, 376.0)
         if event.buttons() == Qt.LeftButton:
             global_pos = event.scenePos()
 
