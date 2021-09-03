@@ -5,7 +5,7 @@ from PyQt5.QtGui import QPen, QBrush, QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsItem, \
     QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QLabel
 from PyQt5.QtCore import QRectF
-from numpy import sqrt, arctan2, degrees
+from numpy import sqrt, arctan2, degrees, sin, cos, radians
 
 
 # TODO: background
@@ -43,6 +43,18 @@ def bearing_to_target(ownship, target):
         return round(abs(bearing), 0)
     else:
         return round(360 - bearing, 0)
+
+
+def cart_to_polar(lat, lon):
+    rho = sqrt(lat**2 + lon**2)
+    phi = arctan2(lon, lat)
+    return rho, phi
+
+
+def polar_to_cart(rho, phi):
+    lon = rho/10 * cos(radians(phi))
+    lat = rho/10 * sin(radians(phi))
+    return round(lat,1), round(lon,1)
 
 
 class Solution:
@@ -93,7 +105,10 @@ class TargetDetailWindow(QDialog):
         super().__init__()
         self.warship = warship
 
-        self.setWindowTitle("Warship {0} Details".format(self.warship.desig))
+        try:
+            self.setWindowTitle("Warship {0} Details".format(self.warship.desig))
+        except(BaseException):
+            self.setWindowTitle("Ownship Details")
 
         self.bearing = QLineEdit(self)
         self.rng = QLineEdit(self)
@@ -132,7 +147,20 @@ class ShipEllipse(QGraphicsEllipseItem):
         if self.w.exec():
             solution = self.w.get_inputs()
             self.warship.set_solution(solution)
-            self.move()
+
+            # now calculate the ellipse movement
+            # get coordinates based on bearing and range
+            (lat, lon) = polar_to_cart(self.warship.solution.rng, self.warship.solution.bearing)
+            self.warship.coord.lat = lat
+            self.warship.coord.lon = lon
+
+            global_pos = event.scenePos()
+
+            dx = self.warship.coord.lat - global_pos.x()
+            dy = self.warship.coord.lon - global_pos.y()
+
+            self.moveBy(dx, dy)
+
         print(self.warship)
 
     def mouseReleaseEvent(self, event):
@@ -151,10 +179,6 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.warship.solution.rng = range_to_target(self.ownship, self.warship)
             self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
             print(self.warship)
-
-    def move(self):
-        # moves the ellipse to the stored position of the warship
-        self.mapToScene(QRectF(0, 0, 50, 50))
 
     def bind_warship(self, warship):
         self.warship = warship
