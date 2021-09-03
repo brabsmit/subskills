@@ -9,7 +9,6 @@ from numpy import degrees, arcsin
 
 
 # TODO: background
-# Testing pycharm github integrations
 
 def range_to_target(ownship, target):
     # sqrt((os_x - tgt_x)^2 + (os_y - tgt_y)^2)
@@ -24,8 +23,6 @@ def range_to_target(ownship, target):
 
 
 def bearing_to_target(ownship, target):
-    print(ownship)
-    print(target)
     os_x = abs(ownship.x)
     os_y = abs(ownship.y)
 
@@ -135,12 +132,20 @@ class ShipEllipse(QGraphicsEllipseItem):
         pass
 
     def mouseMoveEvent(self, event):
-        super(ShipEllipse, self).mouseMoveEvent(event)
-        self.warship.x = self.pos().x()
-        self.warship.y = self.pos().y()
-        self.warship.solution.rng = range_to_target(self.ownship, self.warship)
-        self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
-        print(self.warship)
+
+        if event.buttons() == Qt.LeftButton:
+            global_pos = event.scenePos()
+
+            self.warship.x = global_pos.x()
+            self.warship.y = global_pos.y()
+
+            super(ShipEllipse, self).mouseMoveEvent(event)
+
+            self.warship.solution.rng = range_to_target(self.ownship, self.warship)
+            self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
+            print(self.warship)
+
+
 
     def bind_warship(self, warship):
         self.warship = warship
@@ -230,8 +235,6 @@ class Window(QMainWindow):
         warship2_label.setAutoFillBackground(False)
         warship2_label.setStyleSheet('background-color: transparent')
         warship2_label.setFont(self.font)
-
-        ownship_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
 
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
