@@ -1,42 +1,48 @@
-import math
 import sys
 
 from PyQt5.Qt import Qt
 from PyQt5.QtGui import QPen, QBrush, QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsItem, \
     QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QLabel
-from numpy import degrees, arcsin
+from PyQt5.QtCore import QRectF
+from numpy import sqrt, arctan2, degrees
 
 
 # TODO: background
+# TODO: target class
+
+class Coordinate:
+
+    def __init__(self, lat, lon):
+        self.lat = lat
+        self.lon = lon
+
 
 def range_to_target(ownship, target):
     # sqrt((os_x - tgt_x)^2 + (os_y - tgt_y)^2)
 
-    os_x = abs(ownship.x)
-    os_y = abs(ownship.y)
+    os_x = abs(ownship.coord.lat)
+    os_y = abs(ownship.coord.lon)
 
-    tgt_x = abs(target.x)
-    tgt_y = abs(target.y)
+    tgt_x = abs(target.coord.lat)
+    tgt_y = abs(target.coord.lon)
 
-    return int(10* math.sqrt((os_x - tgt_x) ** 2 + (os_y - tgt_y) ** 2))
+    return int(10 * sqrt((os_x - tgt_x) ** 2 + (os_y - tgt_y) ** 2))
 
 
 def bearing_to_target(ownship, target):
-    os_x = abs(ownship.x)
-    os_y = abs(ownship.y)
+    # normalize coordinates to ownship
+    offset_x = target.coord.lat
+    offset_y = target.coord.lon
 
-    tgt_x = abs(target.x)
-    tgt_y = abs(target.y)
+    os_normal = Coordinate(ownship.coord.lat-offset_x, ownship.coord.lon-offset_y)
+    phi = arctan2(os_normal.lat, os_normal.lon)
+    bearing = degrees(phi)
 
-    if os_y-tgt_y == 0 or os_x-tgt_x == 0: return None
-
-    try:
-        bearing = arcsin((os_y-tgt_y)/(os_x-tgt_x))
-    except:
-        bearing = 0
-
-    return round(90-abs(degrees(bearing)),0)
+    if bearing <= 0:
+        return round(abs(bearing), 0)
+    else:
+        return round(360 - bearing, 0)
 
 
 class Solution:
@@ -54,14 +60,13 @@ class Solution:
 class Ownship:
 
     def __init__(self):
-        self.x = 0
-        self.y = 0
+        self.coord = Coordinate(0, 0)
 
     def set_solution(self, solution):
         self.solution = solution
 
     def __str__(self):
-        return "<Ownship> {0} ({1}, {2})".format(self.solution, self.x, self.y)
+        return "<Ownship> {0} ({1}, {2})".format(self.solution, self.coord.lat, self.coord.lon)
 
 
 class Warship:
@@ -69,8 +74,7 @@ class Warship:
     def __init__(self, ship_type, desig):
         self.ship_type = ship_type
         self.desig = desig
-        self.x = 0
-        self.y = 0
+        self.coord = Coordinate(0, 0)
 
     def set_solution(self, solution):
         self.solution = solution
@@ -80,7 +84,7 @@ class Warship:
         return self.solution
 
     def __str__(self):
-        return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.x, self.y)
+        return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.coord.lat, self.coord.lon)
 
 
 class TargetDetailWindow(QDialog):
@@ -89,11 +93,13 @@ class TargetDetailWindow(QDialog):
         super().__init__()
         self.warship = warship
 
+        self.setWindowTitle("Warship {0} Details".format(self.warship.desig))
+
         self.bearing = QLineEdit(self)
         self.rng = QLineEdit(self)
         self.course = QLineEdit(self)
         self.speed = QLineEdit(self)
-        buttonBox = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel, self)
 
         self.bearing.setText(str(self.warship.solution.bearing))
         self.rng.setText(str(self.warship.solution.rng))
@@ -105,10 +111,10 @@ class TargetDetailWindow(QDialog):
         layout.addRow("Range", self.rng)
         layout.addRow("Course", self.course)
         layout.addRow("Speed", self.speed)
-        layout.addWidget(buttonBox)
+        layout.addWidget(button_box)
 
-        buttonBox.accepted.connect(self.accept)
-        buttonBox.rejected.connect(self.reject)
+        button_box.accepted.connect(self.accept)
+        button_box.rejected.connect(self.reject)
 
     def get_inputs(self):
         solution = Solution(float(self.bearing.text()), float(self.rng.text()), float(self.course.text()), float(self.speed.text()))
@@ -126,18 +132,19 @@ class ShipEllipse(QGraphicsEllipseItem):
         if self.w.exec():
             solution = self.w.get_inputs()
             self.warship.set_solution(solution)
+            self.move()
+        print(self.warship)
 
     def mouseReleaseEvent(self, event):
         super(ShipEllipse, self).mouseReleaseEvent(event)
         pass
 
     def mouseMoveEvent(self, event):
-
         if event.buttons() == Qt.LeftButton:
             global_pos = event.scenePos()
 
-            self.warship.x = global_pos.x()
-            self.warship.y = global_pos.y()
+            self.warship.coord.lat = global_pos.x()
+            self.warship.coord.lon = global_pos.y()
 
             super(ShipEllipse, self).mouseMoveEvent(event)
 
@@ -145,7 +152,9 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
             print(self.warship)
 
-
+    def move(self):
+        # moves the ellipse to the stored position of the warship
+        self.mapToScene(QRectF(0, 0, 50, 50))
 
     def bind_warship(self, warship):
         self.warship = warship
@@ -172,9 +181,9 @@ class Window(QMainWindow):
         self.warship1.set_solution(Solution(0, 0, 0, 0))
         self.warship2.set_solution(Solution(0, 0, 0, 0))
  
-        self.InitWindow()
+        self.init_window()
  
-    def InitWindow(self):
+    def init_window(self):
         self.setWindowTitle(self.title)
         self.setGeometry(self.left, self.top, self.width, self.height)
  
@@ -200,17 +209,21 @@ class Window(QMainWindow):
  
     def shapes(self):
         ownship_ellipse = ShipEllipse(0, 0, 50, 50)
-        self.ownship.x = 0
-        self.ownship.y = 0
+        self.ownship.coord.lat = 0
+        self.ownship.coord.lon = 0
         ownship_ellipse.bind_warship(self.ownship)
         ownship_ellipse.bind_ownship(self.ownship)
         ownship_ellipse.setPen(self.whitePen)
         ownship_ellipse.setBrush(self.cyanBrush)
         self.scene.addItem(ownship_ellipse)
 
-        warship1_ellipse = ShipEllipse(-200,-900, 50, 50)
-        self.warship1.x = -200
-        self.warship1.y = -900
+        warship1_ellipse = ShipEllipse(-200, -900, 50, 50)
+        self.warship1.coord.lat = -200
+        self.warship1.coord.lon = -900
+        solution = Solution(bearing_to_target(self.ownship, self.warship1),
+                            range_to_target(self.ownship, self.warship1),
+                            0, 0)
+        self.warship1.set_solution(solution)
         warship1_ellipse.bind_warship(self.warship1)
         warship1_ellipse.bind_ownship(self.ownship)
         warship1_ellipse.setPen(self.whitePen)
@@ -222,9 +235,13 @@ class Window(QMainWindow):
         warship1_label.setStyleSheet('background-color: transparent')
         warship1_label.setFont(self.font)
 
-        warship2_ellipse = ShipEllipse(200,-900, 50, 50)
-        self.warship2.x = 200
-        self.warship2.y = -900
+        warship2_ellipse = ShipEllipse(200, -900, 50, 50)
+        self.warship2.coord.lat = 200
+        self.warship2.coord.lon = -900
+        solution = Solution(bearing_to_target(self.ownship, self.warship2),
+                            range_to_target(self.ownship, self.warship2),
+                            0, 0)
+        self.warship2.set_solution(solution)
         warship2_ellipse.bind_warship(self.warship2)
         warship2_ellipse.bind_ownship(self.ownship)
         warship2_ellipse.setPen(self.whitePen)
