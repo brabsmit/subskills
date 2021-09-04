@@ -44,6 +44,25 @@ def bearing_to_target(ownship, target):
         return round(360 - bearing, 0)
 
 
+def bearing_and_range_to_coord(ownship, target):
+    # accepts the user input solution and transforms target to specified coordinate
+    offset_x = ownship.coord.lat
+    offset_y = ownship.coord.lon
+
+    os_normal = Coordinate(ownship.coord.lat-offset_x, ownship.coord.lon-offset_y)
+
+    rho = target.solution.rng
+    phi = (180 - target.solution.bearing) % 360 #because I don't know how else to do it
+
+    lon = rho / 10 * cos(radians(phi))
+    lat = rho / 10 * sin(radians(phi))
+
+    lat_centered = lat + os_normal.lat
+    lon_centered = lon + os_normal.lon
+
+    return round(lat_centered, 1), round(lon_centered, 1)
+
+
 def cart_to_polar(lat, lon):
     rho = sqrt(lat**2 + lon**2)
     phi = arctan2(lon, lat)
@@ -53,8 +72,7 @@ def cart_to_polar(lat, lon):
 def polar_to_cart(rho, phi):
     lon = rho/10 * cos(radians(phi))
     lat = rho/10 * sin(radians(phi))
-    return round(lat,1), round(lon,1)
-
+    return round(lat, 1), round(lon, 1)
 
 class Solution:
 
@@ -79,6 +97,9 @@ class Ownship:
     def __str__(self):
         return "<Ownship> {0} ({1}, {2})".format(self.solution, self.coord.lat, self.coord.lon)
 
+    def tooltip(self):
+        return "Ownship \nCourse: {0}\nSpeed: {1}".format(self.solution.course, self.solution.speed)
+
 
 class Warship:
 
@@ -96,6 +117,9 @@ class Warship:
 
     def __str__(self):
         return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.coord.lat, self.coord.lon)
+
+    def tooltip(self):
+        return "Warship {0}\nBearing: {1}\nRange: {2}\nCourse: {3}\nSpeed: {4}".format(self.desig, self.solution.bearing, self.solution.rng, self.solution.course, self.solution.speed)
 
 
 class TargetDetailWindow(QDialog):
@@ -149,7 +173,7 @@ class ShipEllipse(QGraphicsEllipseItem):
 
             # now calculate the ellipse movement
             # get coordinates based on bearing and range
-            (lat, lon) = polar_to_cart(self.warship.solution.rng, self.warship.solution.bearing)
+            (lat, lon) = bearing_and_range_to_coord(self.ownship, self.warship)
             self.warship.coord.lat = lat
             self.warship.coord.lon = lon
 
@@ -181,6 +205,9 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.warship.solution.rng = range_to_target(self.ownship, self.warship)
             self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
             print(self.warship)
+
+    def hoverEnterEvent(self, event):
+        self.setToolTip(self.warship.tooltip)
 
     def bind_warship(self, warship):
         self.warship = warship
@@ -241,6 +268,7 @@ class Window(QMainWindow):
         ownship_ellipse.bind_ownship(self.ownship)
         ownship_ellipse.setPen(self.whitePen)
         ownship_ellipse.setBrush(self.cyanBrush)
+        ownship_ellipse.setToolTip("Ownship")
         self.scene.addItem(ownship_ellipse)
 
         warship1_ellipse = ShipEllipse(-200, -900, 50, 50)
@@ -254,6 +282,7 @@ class Window(QMainWindow):
         warship1_ellipse.bind_ownship(self.ownship)
         warship1_ellipse.setPen(self.whitePen)
         warship1_ellipse.setBrush(self.blueBrush)
+        warship1_ellipse.setToolTip("Warship {0}".format(self.warship1.desig))
         self.scene.addItem(warship1_ellipse)
 
         warship1_label = QLabel(str(self.warship1.solution.rng))
@@ -272,6 +301,7 @@ class Window(QMainWindow):
         warship2_ellipse.bind_ownship(self.ownship)
         warship2_ellipse.setPen(self.whitePen)
         warship2_ellipse.setBrush(self.redBrush)
+        warship2_ellipse.setToolTip("Warship {0}".format(self.warship2.desig))
         self.scene.addItem(warship2_ellipse)
 
         warship2_label = QLabel(str(self.warship2.solution.rng))
