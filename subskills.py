@@ -190,6 +190,11 @@ class CourseLine(QGraphicsLineItem):
 
         print(self)
 
+    def update_line(self):
+        (lat, lon) = polar_to_cart(self.parent.course_vectors[0].length, self.parent.course_vectors[0].direction)
+        self.end_coord = Coordinate(self.parent.coord.lat + lat, self.parent.coord.lon + lon)
+        self.setLine(self.start_coord.lat, self.start_coord.lon, self.end_coord.lat, self.end_coord.lon)
+
     def __str__(self):
         return "({0}, {1}) -> ({2}, {3})".format(self.start_coord.lat, self.start_coord.lon,
                                                 self.end_coord.lat, self.end_coord.lon)
@@ -271,6 +276,8 @@ class ShipEllipse(QGraphicsEllipseItem):
 
             self.warship.coord.lat = global_pos.x()
             self.warship.coord.lon = global_pos.y()
+
+            self.course_lines[0].update_line()
 
             super(ShipEllipse, self).mouseMoveEvent(event)
 
