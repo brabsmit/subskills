@@ -100,27 +100,6 @@ class Coordinate:
         self.lon = lon
 
 
-class CourseVector:
-
-    def __init__(self, course, speed, duration):
-        self.course = course
-        self.speed = speed
-        self.duration = duration
-        self.start_coord = Coordinate(0, 0)
-
-        (lat, lon) = course_vector_to_coord(self)
-        self.end_coord = Coordinate(lat, lon)
-
-    def set_line(self, parent):
-        self.start_coord = Coordinate(parent.coord.lat, parent.coord.lon)
-        self.end_coord = Coordinate(self.end_coord.lat + parent.coord.lat, self.end_coord.lon + parent.coord.lon)
-
-    def __str__(self):
-        return "C-{0}, S-{1}, D-{2} ({3}, {4}) -> ({5}, {6})".format(self.course, self.speed, self.duration,
-                                                                     self.start_coord.lat, self.start_coord.lon,
-                                                                     self.end_coord.lat, self.end_coord.lon)
-
-
 class Solution:
 
     def __init__(self, bearing, rng, course, speed):
@@ -133,16 +112,30 @@ class Solution:
         return "B-{0}T, R-{1}yds, C-{2}T, S-{3}kts".format(self.bearing, self.rng, self.course, self.speed)
 
 
+class CourseVector:
+
+    def __init__(self, course, speed, duration):
+        self.course = course
+        self.speed = speed
+        self.duration = duration
+
+        self.direction = (180 + self.course) % 360
+        self.length = self.speed * self.duration * (1 / 3) * 100
+
+    def __str__(self):
+        return "D-{0}, rho-{1}, phi-{2}".format(self.duration, self.length, self.direction)
+
+
 class Ownship:
 
     def __init__(self):
         self.coord = Coordinate(0, 0)
         self.solution = Solution(0, 0, 0, 0)
-        self.course_vector = CourseVector(0, 0, 0)
+        self.course_vectors = []
 
     def set_solution(self, solution):
         self.solution = solution
-        self.course_vector = CourseVector(self.solution.course, self.solution.speed, 10)
+        self.course_vectors.append(CourseVector(self.solution.course, self.solution.speed, 10))
 
     def __str__(self):
         return "<Ownship> {0} ({1}, {2})".format(self.solution, self.coord.lat, self.coord.lon)
@@ -158,18 +151,19 @@ class Warship:
         self.desig = desig
         self.coord = Coordinate(0, 0)
         self.solution = Solution(0, 0, 0, 0)
-        self.course_vector = CourseVector(0, 0, 0)
+        self.course_vectors = []
 
     def set_solution(self, solution):
         self.solution = solution
-        self.course_vector = CourseVector(self.solution.course, self.solution.speed, 10)
+        self.course_vectors.append(CourseVector(self.solution.course, self.solution.speed, 10))
 
     def get_solution(self, bearing, rng, course, speed):
         # special function that calculates bearing and range based on x,y pos of warship
         return self.solution
 
     def __str__(self):
-        return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.coord.lat, self.coord.lon)
+        return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.coord.lat,
+                                                          self.coord.lon)
 
     def tooltip(self):
         return "Warship {0}\nBearing:\t{1}\nRange:\t{2}\nCourse:\t{3}\nSpeed:\t{4}".format(self.desig,
@@ -179,17 +173,26 @@ class Warship:
                                                                                            self.solution.speed)
 
 
-class BuilderArrow(QGraphicsLineItem):
+class CourseLine(QGraphicsLineItem):
 
-    def __init__(self, course_vector):
+    def __init__(self, parent):
         super().__init__()
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setPen(QPen(Qt.black))
         self.arrow_head = QPolygonF()
-        self.start_coord = QPointF(course_vector.start_coord.lat, course_vector.start_coord.lon)
-        self.end_coord = QPointF(course_vector.end_coord.lat, course_vector.end_coord.lon)
+        self.parent = parent
 
-        self.setLine(self.start_coord.x(), self.start_coord.y(), self.end_coord.x(), self.end_coord.y())
+        self.start_coord = self.parent.coord
+        (lat, lon) = polar_to_cart(self.parent.course_vectors[0].length, self.parent.course_vectors[0].direction)
+        self.end_coord = Coordinate(self.parent.coord.lat + lat, self.parent.coord.lon + lon)
+
+        self.setLine(self.start_coord.lat, self.start_coord.lon, self.end_coord.lat, self.end_coord.lon)
+
+        print(self)
+
+    def __str__(self):
+        return "({0}, {1}) -> ({2}, {3})".format(self.start_coord.lat, self.start_coord.lon,
+                                                self.end_coord.lat, self.end_coord.lon)
 
 
 class TargetDetailWindow(QDialog):
@@ -256,11 +259,6 @@ class ShipEllipse(QGraphicsEllipseItem):
             dy = self.warship.coord.lon - global_pos.y()
 
             self.moveBy(dx, dy)
-
-            # this also affects the target's first vector so update that too
-            self.course_lines[0].setLine(lat, lon, self.course_lines[0].end_coord.x(),
-                                         self.course_lines[0].end_coord.y())
-
         print(self.warship)
 
     def mouseReleaseEvent(self, event):
@@ -268,8 +266,6 @@ class ShipEllipse(QGraphicsEllipseItem):
         pass
 
     def mouseMoveEvent(self, event):
-        # <Warship A> B-317.0T, R-5171.0yds, C-0.0T, S-0.0kts (-352.7, 378.2)
-        # <Warship A> B-223.0T, R-5130yds, C-0.0T, S-0.0kts (-349.0, 376.0)
         if event.buttons() == Qt.LeftButton:
             global_pos = event.scenePos()
 
@@ -281,10 +277,6 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.warship.solution.rng = range_to_target(self.ownship, self.warship)
             self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
 
-            self.course_lines[0].setLine(self.warship.coord.lat, self.warship.coord.lon,
-                                         self.course_lines[0].end_coord.x(),
-                                         self.course_lines[0].end_coord.y())
-
             print(self.warship)
 
     def hoverMoveEvent(self, event):
@@ -292,7 +284,7 @@ class ShipEllipse(QGraphicsEllipseItem):
 
     def bind_warship(self, warship):
         self.warship = warship
-        self.course_lines.append(BuilderArrow(warship.course_vector))
+        self.course_lines.append(CourseLine(warship))
 
     def bind_ownship(self, ownship):
         self.ownship = ownship
@@ -342,16 +334,16 @@ class Window(QMainWindow):
         ownship_ellipse = ShipEllipse(0, 0, 50, 50)
         self.ownship.coord.lat = 0
         self.ownship.coord.lon = 0
-        ownship_ellipse.bind_warship(self.ownship)
-        ownship_ellipse.bind_ownship(self.ownship)
         ownship_ellipse.setPen(self.whitePen)
         ownship_ellipse.setBrush(self.cyanBrush)
         ownship_ellipse.setAcceptHoverEvents(True)
         ownship_ellipse.setToolTip("Ownship")
         solution = Solution(0, 0, 0, 3.5)
         self.ownship.set_solution(solution)
-        self.ownship.course_vector.set_line(self.ownship)
+        ownship_ellipse.bind_warship(self.ownship)
+        ownship_ellipse.bind_ownship(self.ownship)
         self.scene.addItem(ownship_ellipse)
+        self.scene.addItem(ownship_ellipse.course_lines[0])
 
         warship1_ellipse = ShipEllipse(-200, -900, 50, 50)
         self.warship1.coord.lat = -200
@@ -360,7 +352,6 @@ class Window(QMainWindow):
                             range_to_target(self.ownship, self.warship1),
                             180, 27)
         self.warship1.set_solution(solution)
-        self.warship1.course_vector.set_line(self.warship1)
         warship1_ellipse.bind_warship(self.warship1)
         warship1_ellipse.bind_ownship(self.ownship)
         warship1_ellipse.setPen(self.whitePen)
@@ -368,6 +359,7 @@ class Window(QMainWindow):
         warship1_ellipse.setAcceptHoverEvents(True)
         warship1_ellipse.setToolTip("Warship {0}".format(self.warship1.desig))
         self.scene.addItem(warship1_ellipse)
+        self.scene.addItem(warship1_ellipse.course_lines[0])
 
         warship2_ellipse = ShipEllipse(200, -900, 50, 50)
         self.warship2.coord.lat = 200
@@ -376,7 +368,6 @@ class Window(QMainWindow):
                             range_to_target(self.ownship, self.warship2),
                             180, 20)
         self.warship2.set_solution(solution)
-        self.warship2.course_vector.set_line(self.warship2)
         warship2_ellipse.bind_warship(self.warship2)
         warship2_ellipse.bind_ownship(self.ownship)
         warship2_ellipse.setPen(self.whitePen)
@@ -384,18 +375,13 @@ class Window(QMainWindow):
         warship2_ellipse.setAcceptHoverEvents(True)
         warship2_ellipse.setToolTip("Warship {0}".format(self.warship2.desig))
         self.scene.addItem(warship2_ellipse)
+        self.scene.addItem(warship2_ellipse.course_lines[0])
 
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
 
         warship2_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
         warship2_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
-
-        self.scene.addItem(warship1_ellipse.course_lines[0])
-        self.scene.addItem(warship2_ellipse.course_lines[0])
-
-        ownship_line = BuilderArrow(self.ownship.course_vector)
-        self.scene.addItem(ownship_line)
 
         print(self.ownship)
         print(self.warship1)
