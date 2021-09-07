@@ -34,9 +34,9 @@ def bearing_to_target(ownship, target):
     bearing = degrees(phi)
 
     if bearing <= 0:
-        return round(abs(bearing), 0)
+        return round(abs(bearing), 1)
     else:
-        return round(360 - bearing, 0)
+        return round(360 - bearing, 1)
 
 
 def bearing_and_range_to_coord(ownship, target):
@@ -109,7 +109,28 @@ class Solution:
         self.speed = speed
 
     def __str__(self):
-        return "B-{0}T, R-{1}yds, C-{2}T, S-{3}kts".format(self.bearing, self.rng, self.course, self.speed)
+        bearing_string = ""
+        if self.bearing < 100:
+            bearing_string += "0"
+            if self.bearing < 10:
+                bearing_string += "0"
+        bearing_string += str(self.bearing)
+
+        course_string = ""
+        if self.course < 100:
+            course_string += "0"
+            if self.course < 10:
+                course_string += "0"
+        course_string += str(self.course)
+
+        if self.rng > 999:
+            range_string = str(round(self.rng / 1000, 1))
+            range_string += "kyds"
+        else:
+            range_string = str(round(self.rng, 1))
+            range_string += "yds"
+
+        return "B-{0}T, R-{1}, C-{2}T, S-{3}kts".format(bearing_string, range_string, course_string, self.speed)
 
 
 class CourseVector:
@@ -141,7 +162,7 @@ class Ownship:
         return "<Ownship> {0} ({1}, {2})".format(self.solution, self.coord.lat, self.coord.lon)
 
     def tooltip(self):
-        return "Ownship \nCourse:\t{0}\nSpeed:\t{1}".format(self.solution.course, self.solution.speed)
+        return "Ownship \nCourse:\t{0}\nSpeed:\t{1}kts".format(self.solution.course, self.solution.speed)
 
 
 class Warship:
@@ -166,11 +187,11 @@ class Warship:
                                                           self.coord.lon)
 
     def tooltip(self):
-        return "Warship {0}\nBearing:\t{1}\nRange:\t{2}\nCourse:\t{3}\nSpeed:\t{4}".format(self.desig,
-                                                                                           self.solution.bearing,
-                                                                                           self.solution.rng,
-                                                                                           self.solution.course,
-                                                                                           self.solution.speed)
+        return "Warship {0}\nBearing:\t{1}\nRange:\t{2}yds\nCourse:\t{3}\nSpeed:\t{4}kts".format(self.desig,
+                                                                                                 self.solution.bearing,
+                                                                                                 self.solution.rng,
+                                                                                                 self.solution.course,
+                                                                                                 self.solution.speed)
 
 
 class CourseLine(QGraphicsLineItem):
@@ -179,7 +200,8 @@ class CourseLine(QGraphicsLineItem):
         super().__init__()
         self.setFlag(QGraphicsItem.ItemIsSelectable)
         self.setPen(QPen(Qt.black))
-        self.arrow_head = QPolygonF()
+        self.arrow_left = QGraphicsLineItem()
+        self.arrow_right = QGraphicsLineItem()
         self.parent = parent
 
         self.start_coord = self.parent.coord
@@ -188,12 +210,30 @@ class CourseLine(QGraphicsLineItem):
 
         self.setLine(self.start_coord.lat, self.start_coord.lon, self.end_coord.lat, self.end_coord.lon)
 
-        print(self)
+        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(250, (parent.course_vectors[0].direction + 150) % 360)
+        self.arrow_left.setLine(self.end_coord.lat, self.end_coord.lon,
+                                self.end_coord.lat + arrow_left_end_lat,
+                                self.end_coord.lon + arrow_left_end_lon)
+
+        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(250, (parent.course_vectors[0].direction - 150) % 360)
+        self.arrow_right.setLine(self.end_coord.lat, self.end_coord.lon,
+                                self.end_coord.lat + arrow_right_end_lat,
+                                self.end_coord.lon + arrow_right_end_lon)
 
     def update_line(self):
         (lat, lon) = polar_to_cart(self.parent.course_vectors[0].length, self.parent.course_vectors[0].direction)
         self.end_coord = Coordinate(self.parent.coord.lat + lat, self.parent.coord.lon + lon)
         self.setLine(self.start_coord.lat, self.start_coord.lon, self.end_coord.lat, self.end_coord.lon)
+
+        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(250, (self.parent.course_vectors[0].direction + 150) % 360)
+        self.arrow_left.setLine(self.end_coord.lat, self.end_coord.lon,
+                                self.end_coord.lat + arrow_left_end_lat,
+                                self.end_coord.lon + arrow_left_end_lon)
+
+        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(250, (self.parent.course_vectors[0].direction - 150) % 360)
+        self.arrow_right.setLine(self.end_coord.lat, self.end_coord.lon,
+                                 self.end_coord.lat + arrow_right_end_lat,
+                                 self.end_coord.lon + arrow_right_end_lon)
 
     def __str__(self):
         return "({0}, {1}) -> ({2}, {3})".format(self.start_coord.lat, self.start_coord.lon,
@@ -351,6 +391,8 @@ class Window(QMainWindow):
         ownship_ellipse.bind_ownship(self.ownship)
         self.scene.addItem(ownship_ellipse)
         self.scene.addItem(ownship_ellipse.course_lines[0])
+        self.scene.addItem(ownship_ellipse.course_lines[0].arrow_left)
+        self.scene.addItem(ownship_ellipse.course_lines[0].arrow_right)
 
         warship1_ellipse = ShipEllipse(-200, -900, 50, 50)
         self.warship1.coord.lat = -200
@@ -367,6 +409,8 @@ class Window(QMainWindow):
         warship1_ellipse.setToolTip("Warship {0}".format(self.warship1.desig))
         self.scene.addItem(warship1_ellipse)
         self.scene.addItem(warship1_ellipse.course_lines[0])
+        self.scene.addItem(warship1_ellipse.course_lines[0].arrow_left)
+        self.scene.addItem(warship1_ellipse.course_lines[0].arrow_right)
 
         warship2_ellipse = ShipEllipse(200, -900, 50, 50)
         self.warship2.coord.lat = 200
@@ -383,6 +427,8 @@ class Window(QMainWindow):
         warship2_ellipse.setToolTip("Warship {0}".format(self.warship2.desig))
         self.scene.addItem(warship2_ellipse)
         self.scene.addItem(warship2_ellipse.course_lines[0])
+        self.scene.addItem(warship2_ellipse.course_lines[0].arrow_left)
+        self.scene.addItem(warship2_ellipse.course_lines[0].arrow_right)
 
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
