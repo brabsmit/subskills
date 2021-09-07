@@ -1,8 +1,7 @@
 import sys
 
 from PyQt5.Qt import Qt
-from PyQt5.QtCore import QPointF
-from PyQt5.QtGui import QPen, QBrush, QFont, QPolygonF
+from PyQt5.QtGui import QPen, QBrush, QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsItem, \
     QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QGraphicsLineItem
 from numpy import sqrt, arctan2, degrees, sin, cos, radians
@@ -10,6 +9,9 @@ from numpy import sqrt, arctan2, degrees, sin, cos, radians
 
 # TODO: background
 # TODO: target class
+
+# TODO: click and drag CourseLine
+# TODO: add more than one CourseLine
 
 
 def range_to_target(ownship, target):
@@ -59,7 +61,7 @@ def bearing_and_range_to_coord(ownship, target):
 
 
 def target_course_and_speed_to_coord(target):
-    phi = (target.solution.course - 90) % 360
+    phi = target.solution.course
     rho = target.solution.speed * 333
 
     x_offset = rho / 10 * cos(radians(phi))
@@ -72,7 +74,7 @@ def target_course_and_speed_to_coord(target):
 
 
 def course_vector_to_coord(course_vector):
-    phi = (course_vector.course - 90) % 360
+    phi = course_vector.course
     rho = course_vector.speed * course_vector.duration * (1/3) * 100
 
     x_offset = rho / 10 * cos(radians(phi))
@@ -88,8 +90,9 @@ def cart_to_polar(lat, lon):
 
 
 def polar_to_cart(rho, phi):
-    lon = rho / 10 * cos(radians(phi))
-    lat = rho / 10 * sin(radians(phi))
+    trans_phi = (phi - 90) % 360
+    lat = rho / 10 * cos(radians(trans_phi))
+    lon = rho / 10 * sin(radians(trans_phi))
     return round(lat, 1), round(lon, 1)
 
 
@@ -140,7 +143,7 @@ class CourseVector:
         self.speed = speed
         self.duration = duration
 
-        self.direction = (180 + self.course) % 360
+        self.direction = self.course
         self.length = self.speed * self.duration * (1 / 3) * 100
 
     def __str__(self):
@@ -210,6 +213,8 @@ class CourseLine(QGraphicsLineItem):
         self.setPen(QPen(Qt.black))
         self.arrow_left = QGraphicsLineItem()
         self.arrow_right = QGraphicsLineItem()
+        self.arrow_head = QGraphicsEllipseItem()
+        self.arrow_head_center = Coordinate(0, 0)
         self.parent = parent
 
         self.start_coord = self.parent.coord
@@ -218,15 +223,19 @@ class CourseLine(QGraphicsLineItem):
 
         self.setLine(self.start_coord.lat, self.start_coord.lon, self.end_coord.lat, self.end_coord.lon)
 
-        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(250, (parent.course_vectors[0].direction + 150) % 360)
+        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(250, (self.parent.course_vectors[0].direction + 150) % 360)
         self.arrow_left.setLine(self.end_coord.lat, self.end_coord.lon,
                                 self.end_coord.lat + arrow_left_end_lat,
                                 self.end_coord.lon + arrow_left_end_lon)
 
-        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(250, (parent.course_vectors[0].direction - 150) % 360)
+        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(250, (self.parent.course_vectors[0].direction - 150) % 360)
         self.arrow_right.setLine(self.end_coord.lat, self.end_coord.lon,
                                 self.end_coord.lat + arrow_right_end_lat,
                                 self.end_coord.lon + arrow_right_end_lon)
+
+        (lat, lon) = polar_to_cart(15, (180 + self.parent.course_vectors[0].direction) % 360)
+        self.arrow_head = QGraphicsEllipseItem(self.end_coord.lat + lat, self.end_coord.lon + lon, 30, 30)
+        self.arrow_head.setPen(QPen(Qt.black))
 
     def update_line(self):
         (lat, lon) = polar_to_cart(self.parent.course_vectors[0].length, self.parent.course_vectors[0].direction)
@@ -402,6 +411,7 @@ class Window(QMainWindow):
         self.scene.addItem(ownship_ellipse.course_lines[0])
         self.scene.addItem(ownship_ellipse.course_lines[0].arrow_left)
         self.scene.addItem(ownship_ellipse.course_lines[0].arrow_right)
+        self.scene.addItem(ownship_ellipse.course_lines[0].arrow_head)
 
         warship1_ellipse = ShipEllipse(-200, -900, 50, 50)
         self.warship1.coord.lat = -200
@@ -420,6 +430,7 @@ class Window(QMainWindow):
         self.scene.addItem(warship1_ellipse.course_lines[0])
         self.scene.addItem(warship1_ellipse.course_lines[0].arrow_left)
         self.scene.addItem(warship1_ellipse.course_lines[0].arrow_right)
+        self.scene.addItem(warship1_ellipse.course_lines[0].arrow_head)
 
         warship2_ellipse = ShipEllipse(200, -900, 50, 50)
         self.warship2.coord.lat = 200
@@ -438,6 +449,7 @@ class Window(QMainWindow):
         self.scene.addItem(warship2_ellipse.course_lines[0])
         self.scene.addItem(warship2_ellipse.course_lines[0].arrow_left)
         self.scene.addItem(warship2_ellipse.course_lines[0].arrow_right)
+        self.scene.addItem(warship2_ellipse.course_lines[0].arrow_head)
 
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
