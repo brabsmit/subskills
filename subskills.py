@@ -10,7 +10,6 @@ from numpy import sqrt, arctan2, degrees, sin, cos, radians
 # TODO: background
 # TODO: target class
 
-# TODO: move arrowhead with CourseLine
 # TODO: click and drag CourseLine
 # TODO: add more than one CourseLine
 
@@ -72,6 +71,11 @@ def target_course_and_speed_to_coord(target):
     lon = y_offset + target.coord.lon
 
     return round(lat, 1), round(lon, 1)
+
+
+def bearing_and_range_between_coords(a, b):
+    #TODO
+    pass
 
 
 def course_vector_to_coord(course_vector):
@@ -202,6 +206,24 @@ class Warship:
                                                                                                  self.solution.speed)
 
 
+class ArrowHead(QGraphicsEllipseItem):
+
+    def __init__(self, parent):
+        super(ArrowHead, self).__init__()
+        self.parent = parent
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() == Qt.LeftButton:
+            global_pos = event.scenePos()
+
+            lat = global_pos.x()
+            lon = global_pos.y()
+
+            super(ArrowHead, self).mouseMoveEvent(event)
+
+            print(lat, lon)
+
+
 class CourseLine(QGraphicsLineItem):
 
     def __init__(self, parent):
@@ -210,9 +232,9 @@ class CourseLine(QGraphicsLineItem):
         self.setPen(QPen(Qt.black))
         self.arrow_left = QGraphicsLineItem()
         self.arrow_right = QGraphicsLineItem()
-        self.arrow_head = QGraphicsEllipseItem()
         self.arrow_head_center = Coordinate(0, 0)
         self.parent = parent
+        self.arrow_head = ArrowHead(self.parent)
 
         self.start_coord = self.parent.coord
         (lat, lon) = polar_to_cart(self.parent.course_vectors[0].length, self.parent.course_vectors[0].direction)
@@ -233,7 +255,7 @@ class CourseLine(QGraphicsLineItem):
                                  self.end_coord.lat + arrow_right_end_lat,
                                  self.end_coord.lon + arrow_right_end_lon)
 
-        self.arrow_head = QGraphicsEllipseItem(self.end_coord.lat - 15, self.end_coord.lon - 15, 30, 30)
+        self.arrow_head.setRect(self.end_coord.lat - 15, self.end_coord.lon - 15, 30, 30)
         self.arrow_head.setPen(QPen(Qt.black))
 
     def update_line(self):
@@ -347,7 +369,6 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.warship.solution.rng = range_to_target(self.ownship, self.warship)
             self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
 
-
     def hoverMoveEvent(self, event):
         self.setToolTip(self.warship.tooltip())
 
@@ -456,10 +477,10 @@ class Window(QMainWindow):
         self.scene.addItem(warship2_ellipse.course_lines[0].arrow_head)
 
         warship1_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
-        warship1_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
+        warship1_ellipse.course_lines[0].arrow_head.setFlag(QGraphicsItem.ItemIsMovable)
 
         warship2_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
-        warship2_ellipse.setFlag(QGraphicsItem.ItemIsSelectable)
+        warship2_ellipse.course_lines[0].arrow_head.setFlag(QGraphicsItem.ItemIsMovable)
 
         print(self.ownship)
         print(self.warship1)
