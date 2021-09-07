@@ -158,6 +158,10 @@ class Ownship:
         self.solution = solution
         self.course_vectors.append(CourseVector(self.solution.course, self.solution.speed, 10))
 
+    def update_solution(self, solution):
+        self.solution = solution
+        self.course_vectors[0] = CourseVector(self.solution.course, self.solution.speed, 10)
+
     def __str__(self):
         return "<Ownship> {0} ({1}, {2})".format(self.solution, self.coord.lat, self.coord.lon)
 
@@ -181,6 +185,10 @@ class Warship:
     def get_solution(self, bearing, rng, course, speed):
         # special function that calculates bearing and range based on x,y pos of warship
         return self.solution
+
+    def update_solution(self, solution):
+        self.solution = solution
+        self.course_vectors[0] = CourseVector(self.solution.course, self.solution.speed, 10)
 
     def __str__(self):
         return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.coord.lat,
@@ -290,7 +298,7 @@ class ShipEllipse(QGraphicsEllipseItem):
 
         if self.w.exec():
             solution = self.w.get_inputs()
-            self.warship.set_solution(solution)
+            self.warship.update_solution(solution)
 
             # now calculate the ellipse movement
             # get coordinates based on bearing and range
@@ -303,8 +311,10 @@ class ShipEllipse(QGraphicsEllipseItem):
             dx = self.warship.coord.lat - global_pos.x()
             dy = self.warship.coord.lon - global_pos.y()
 
+            self.course_lines[0].update_line()
+
             self.moveBy(dx, dy)
-        print(self.warship)
+            print(self.warship)
 
     def mouseReleaseEvent(self, event):
         super(ShipEllipse, self).mouseReleaseEvent(event)
@@ -324,7 +334,6 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.warship.solution.rng = range_to_target(self.ownship, self.warship)
             self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
 
-            print(self.warship)
 
     def hoverMoveEvent(self, event):
         self.setToolTip(self.warship.tooltip())
