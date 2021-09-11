@@ -26,6 +26,16 @@ def range_to_target(ownship, target):
     return int(10 * sqrt((os_x - tgt_x) ** 2 + (os_y - tgt_y) ** 2))
 
 
+def range_to_point(start_coord, end_coord):
+    x1 = abs(start_coord.lat)
+    y1 = abs(start_coord.lon)
+
+    x2 = abs(end_coord.lat)
+    y2 = abs(end_coord.lon)
+
+    return int(10 * sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2))
+
+
 def bearing_to_target(ownship, target):
     # normalize coordinates to ownship
     offset_x = target.coord.lat
@@ -33,6 +43,20 @@ def bearing_to_target(ownship, target):
 
     os_normal = Coordinate(ownship.coord.lat - offset_x, ownship.coord.lon - offset_y)
     phi = arctan2(os_normal.lat, os_normal.lon)
+    bearing = degrees(phi)
+
+    if bearing <= 0:
+        return round(abs(bearing), 1)
+    else:
+        return round(360 - bearing, 1)
+
+
+def bearing_to_point(start_coord, end_coord):
+    offset_x = end_coord.lat
+    offset_y = end_coord.lon
+
+    normal = Coordinate(start_coord.lat - offset_x, start_coord.lon - offset_y)
+    phi = arctan2(normal.lat, normal.lon)
     bearing = degrees(phi)
 
     if bearing <= 0:
@@ -73,11 +97,6 @@ def target_course_and_speed_to_coord(target):
     return round(lat, 1), round(lon, 1)
 
 
-def bearing_and_range_between_coords(a, b):
-    #TODO
-    pass
-
-
 def course_vector_to_coord(course_vector):
     phi = course_vector.course
     rho = course_vector.speed * course_vector.duration * (1/3) * 100
@@ -101,11 +120,21 @@ def polar_to_cart(rho, phi):
     return round(lat, 1), round(lon, 1)
 
 
+def coordinates_to_bearing_range(start_coord, end_coord):
+    rng = range_to_point(start_coord, end_coord)
+    bearing = bearing_to_point(start_coord, end_coord)
+
+    return bearing, rng
+
+
 class Coordinate:
 
     def __init__(self, lat, lon):
         self.lat = lat
         self.lon = lon
+
+    def __str__(self):
+        return "({0},{1})".format(round(self.lat, 0), round(self.lon, 0))
 
 
 class Solution:
@@ -185,6 +214,7 @@ class Warship:
         self.coord = Coordinate(0, 0)
         self.solution = Solution(0, 0, 0, 0)
         self.course_vectors = []
+        self.ship_ellipse = ShipEllipse(0, 0, 0, 0)
 
     def set_solution(self, solution):
         self.solution = solution
@@ -193,6 +223,9 @@ class Warship:
     def update_solution(self, solution):
         self.solution = solution
         self.course_vectors[0] = CourseVector(self.solution.course, self.solution.speed, 10)
+
+    def bind_ellipse(self, ship_ellipse):
+        self.ship_ellipse = ship_ellipse
 
     def __str__(self):
         return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.coord.lat,
@@ -214,19 +247,8 @@ class ArrowHead(QGraphicsEllipseItem):
 
     def mouseMoveEvent(self, event):
         if event.buttons() == Qt.LeftButton:
-            global_pos = event.scenePos()
-
-            lat = global_pos.x()
-            lon = global_pos.y()
-
-            super(ArrowHead, self).mouseMoveEvent(event)
-
-            # move arrowhead
-            # calculate bearing and range to new arrowhead
-            # update CourseVector
-            # update CourseLine
-
-            print(lat, lon)
+            #super(ArrowHead, self).mouseMoveEvent(event)
+            self.parent.ship_ellipse.course_lines[0].rotate_line(event)
 
 
 class CourseLine(QGraphicsLineItem):
@@ -239,21 +261,22 @@ class CourseLine(QGraphicsLineItem):
         self.arrow_right = QGraphicsLineItem()
         self.arrow_head_center = Coordinate(0, 0)
         self.parent = parent
+        self.arrow_length = 150
         self.arrow_head = ArrowHead(self.parent)
 
-        self.start_coord = self.parent.coord
+        self.start_coord = Coordinate(self.parent.coord.lat + 10, self.parent.coord.lon + 10)
         (lat, lon) = polar_to_cart(self.parent.course_vectors[0].length, self.parent.course_vectors[0].direction)
-        self.end_coord = Coordinate(self.parent.coord.lat + lat, self.parent.coord.lon + lon)
+        self.end_coord = Coordinate(self.parent.coord.lat + lat + 10, self.parent.coord.lon + lon + 10)
 
         self.setLine(self.start_coord.lat, self.start_coord.lon, self.end_coord.lat, self.end_coord.lon)
 
-        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(250,
+        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(self.arrow_length,
                                                                  (self.parent.course_vectors[0].direction + 150) % 360)
         self.arrow_left.setLine(self.end_coord.lat, self.end_coord.lon,
                                 self.end_coord.lat + arrow_left_end_lat,
                                 self.end_coord.lon + arrow_left_end_lon)
 
-        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(250,
+        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(self.arrow_length,
                                                                    (self.parent.course_vectors[0].direction
                                                                     - 150) % 360)
         self.arrow_right.setLine(self.end_coord.lat, self.end_coord.lon,
@@ -261,20 +284,21 @@ class CourseLine(QGraphicsLineItem):
                                  self.end_coord.lon + arrow_right_end_lon)
 
         self.arrow_head.setRect(self.end_coord.lat - 15, self.end_coord.lon - 15, 30, 30)
-        self.arrow_head.setPen(QPen(Qt.black))
+        self.arrow_head.setPen(QPen(Qt.transparent))
 
-    def update_line(self):
+    def translate_line(self):
+        self.start_coord = Coordinate(self.parent.coord.lat + 10, self.parent.coord.lon + 10)
         (lat, lon) = polar_to_cart(self.parent.course_vectors[0].length, self.parent.course_vectors[0].direction)
-        self.end_coord = Coordinate(self.parent.coord.lat + lat, self.parent.coord.lon + lon)
+        self.end_coord = Coordinate(self.parent.coord.lat + lat + 10, self.parent.coord.lon + lon + 10)
         self.setLine(self.start_coord.lat, self.start_coord.lon, self.end_coord.lat, self.end_coord.lon)
 
-        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(250,
+        (arrow_left_end_lat, arrow_left_end_lon) = polar_to_cart(self.arrow_length,
                                                                  (self.parent.course_vectors[0].direction + 150) % 360)
         self.arrow_left.setLine(self.end_coord.lat, self.end_coord.lon,
                                 self.end_coord.lat + arrow_left_end_lat,
                                 self.end_coord.lon + arrow_left_end_lon)
 
-        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(250,
+        (arrow_right_end_lat, arrow_right_end_lon) = polar_to_cart(self.arrow_length,
                                                                    (self.parent.course_vectors[0].direction
                                                                     - 150) % 360)
         self.arrow_right.setLine(self.end_coord.lat, self.end_coord.lon,
@@ -282,6 +306,23 @@ class CourseLine(QGraphicsLineItem):
                                  self.end_coord.lon + arrow_right_end_lon)
 
         self.arrow_head.setRect(self.end_coord.lat - 15, self.end_coord.lon - 15, 30, 30)
+
+    def rotate_line(self, event):
+        self.start_coord = Coordinate(self.parent.coord.lat + 10, self.parent.coord.lon + 10)
+
+        global_pos = event.scenePos()
+
+        lat = global_pos.x()
+        lon = global_pos.y()
+
+        end_coord = Coordinate(lat, lon)
+
+        (bearing, range) = coordinates_to_bearing_range(self.start_coord, end_coord)
+        self.parent.course_vectors[0].direction = bearing
+        self.parent.solution.course = bearing
+        self.parent.course_vectors[0].length = range
+
+        self.translate_line()
 
     def __str__(self):
         return "({0}, {1}) -> ({2}, {3})".format(self.start_coord.lat, self.start_coord.lon,
@@ -348,10 +389,10 @@ class ShipEllipse(QGraphicsEllipseItem):
 
             global_pos = event.scenePos()
 
-            dx = self.warship.coord.lat - global_pos.x()
-            dy = self.warship.coord.lon - global_pos.y()
+            dx = self.warship.coord.lat - global_pos.x() + 10
+            dy = self.warship.coord.lon - global_pos.y() + 10
 
-            self.course_lines[0].update_line()
+            self.course_lines[0].translate_line()
 
             self.moveBy(dx, dy)
             print(self.warship)
@@ -367,7 +408,7 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.warship.coord.lat = global_pos.x()
             self.warship.coord.lon = global_pos.y()
 
-            self.course_lines[0].update_line()
+            self.course_lines[0].translate_line()
 
             super(ShipEllipse, self).mouseMoveEvent(event)
 
@@ -444,6 +485,7 @@ class Window(QMainWindow):
         self.scene.addItem(ownship_ellipse.course_lines[0].arrow_head)
 
         warship1_ellipse = ShipEllipse(-100, -600, 20, 20)
+        self.warship1.bind_ellipse(warship1_ellipse)
         self.warship1.coord.lat = -100
         self.warship1.coord.lon = -600
         solution = Solution(bearing_to_target(self.ownship, self.warship1),
@@ -463,6 +505,7 @@ class Window(QMainWindow):
         self.scene.addItem(warship1_ellipse.course_lines[0].arrow_head)
 
         warship2_ellipse = ShipEllipse(100, -600, 20, 20)
+        self.warship2.bind_ellipse(warship2_ellipse)
         self.warship2.coord.lat = 100
         self.warship2.coord.lon = -600
         solution = Solution(bearing_to_target(self.ownship, self.warship2),
