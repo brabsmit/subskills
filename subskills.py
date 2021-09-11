@@ -149,7 +149,7 @@ class CourseVector:
         self.duration = duration
 
         self.direction = self.course
-        self.length = self.speed * self.duration * (1 / 3) * 100
+        self.length = self.speed * self.duration * (1/4.5) * 100
 
     def __str__(self):
         return "D-{0}, rho-{1}, phi-{2}".format(self.duration, self.length, self.direction)
@@ -220,6 +220,11 @@ class ArrowHead(QGraphicsEllipseItem):
             lon = global_pos.y()
 
             super(ArrowHead, self).mouseMoveEvent(event)
+
+            # move arrowhead
+            # calculate bearing and range to new arrowhead
+            # update CourseVector
+            # update CourseLine
 
             print(lat, lon)
 
@@ -389,7 +394,7 @@ class Window(QMainWindow):
         self.top = 0
         self.left = 0
         self.width = 1800
-        self.height = 1800
+        self.height = 1000
         self.ownship = Ownship()
         self.warship1 = Warship(None, "A")
         self.warship2 = Warship(None, "B")
@@ -421,7 +426,7 @@ class Window(QMainWindow):
         self.shapes()
 
     def shapes(self):
-        ownship_ellipse = ShipEllipse(0, 0, 50, 50)
+        ownship_ellipse = ShipEllipse(0, 0, 20, 20)
         self.ownship.coord.lat = 0
         self.ownship.coord.lon = 0
         ownship_ellipse.setPen(self.whitePen)
@@ -438,9 +443,9 @@ class Window(QMainWindow):
         self.scene.addItem(ownship_ellipse.course_lines[0].arrow_right)
         self.scene.addItem(ownship_ellipse.course_lines[0].arrow_head)
 
-        warship1_ellipse = ShipEllipse(-200, -900, 50, 50)
-        self.warship1.coord.lat = -200
-        self.warship1.coord.lon = -900
+        warship1_ellipse = ShipEllipse(-100, -600, 20, 20)
+        self.warship1.coord.lat = -100
+        self.warship1.coord.lon = -600
         solution = Solution(bearing_to_target(self.ownship, self.warship1),
                             range_to_target(self.ownship, self.warship1),
                             200, 27)
@@ -457,9 +462,9 @@ class Window(QMainWindow):
         self.scene.addItem(warship1_ellipse.course_lines[0].arrow_right)
         self.scene.addItem(warship1_ellipse.course_lines[0].arrow_head)
 
-        warship2_ellipse = ShipEllipse(200, -900, 50, 50)
-        self.warship2.coord.lat = 200
-        self.warship2.coord.lon = -900
+        warship2_ellipse = ShipEllipse(100, -600, 20, 20)
+        self.warship2.coord.lat = 100
+        self.warship2.coord.lon = -600
         solution = Solution(bearing_to_target(self.ownship, self.warship2),
                             range_to_target(self.ownship, self.warship2),
                             160, 20)
@@ -481,6 +486,8 @@ class Window(QMainWindow):
 
         warship2_ellipse.setFlag(QGraphicsItem.ItemIsMovable)
         warship2_ellipse.course_lines[0].arrow_head.setFlag(QGraphicsItem.ItemIsMovable)
+
+        self.scene.setSceneRect(-900, -300, 1800, 1000)
 
         print(self.ownship)
         print(self.warship1)
