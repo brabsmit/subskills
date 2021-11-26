@@ -1,15 +1,12 @@
 import sys
 
-from PyQt5 import QtWidgets
 from PyQt5.Qt import Qt
-from PyQt5.QtCore import QPropertyAnimation, QRect, QPointF, QObject, QRectF, pyqtSignal, pyqtProperty, \
-    QAbstractTableModel, QModelIndex, QTimer
+from PyQt5.QtCore import QPropertyAnimation, QObject, QRectF, pyqtSignal, pyqtProperty, QAbstractTableModel, QTimer
 from PyQt5.QtGui import QPen, QBrush, QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsItem, \
-    QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QGraphicsLineItem, QWidget, QTableView, \
-    QAbstractItemView, QVBoxLayout, QCheckBox, QTableWidget, QTableWidgetItem, QAbstractScrollArea
-from numpy import sqrt, arctan2, degrees, sin, cos, radians
-import operator
+    QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QGraphicsLineItem, QTableView, \
+    QAbstractScrollArea
+from numpy import sqrt, arctan2, degrees, sin, cos, radians, pi
 
 
 # TODO: background
@@ -131,6 +128,21 @@ def coordinates_to_bearing_range(start_coord, end_coord):
 
     return bearing, rng
 
+def cpa(ownship, warship):
+    dtr = pi / 180
+    x = warship.solution.rng/2000 * cos(dtr*warship.solution.bearing)
+    y = warship.solution.rng/2000 * sin(dtr*warship.solution.bearing)
+    xvel = warship.solution.speed * cos(dtr * warship.solution.course) - ownship.solution.speed * cos(dtr * ownship.solution.course)
+    yvel = warship.solution.speed * sin(dtr * warship.solution.course) - ownship.solution.speed * sin(dtr * ownship.solution.course)
+    dot = (x * xvel) + (y * yvel)
+    if dot >= 0:
+        return [-1, -1]
+    a = xvel**2 + yvel**2
+    b = 2 * dot
+    cpa_range = sqrt((warship.solution.rng/2000)**2 - ((b**2)/(4*a))) # yards
+    cpa_time = 60*(-b/(2*a)) # minutes
+    return [cpa_range*2000, cpa_time]
+
 
 class Coordinate:
 
@@ -144,11 +156,13 @@ class Coordinate:
 
 class Solution:
 
-    def __init__(self, bearing, rng, course, speed):
+    def __init__(self, bearing, rng, course, speed, cpa_range, cpa_time):
         self.bearing = bearing
         self.rng = rng
         self.course = course
         self.speed = speed
+        self.cpa_range = cpa_range
+        self.cpa_time = cpa_time
 
     def __str__(self):
         bearing_string = ""
@@ -206,15 +220,21 @@ class Ownship:
 
     def __init__(self):
         self.coord = Coordinate(0, 0)
-        self.solution = Solution(0, 0, 0, 0)
+        self.solution = Solution(0, 0, 0, 0, 0, 0)
         self.course_vectors = []
 
     def set_solution(self, solution):
-        self.solution = solution
+        self.solution.bearing = solution.bearing
+        self.solution.rng = solution.rng
+        self.solution.course = solution.course
+        self.solution.speed = solution.speed
         self.course_vectors.append(CourseVector(self.solution.course, self.solution.speed, 10))
 
     def update_solution(self, solution):
-        self.solution = solution
+        self.solution.bearing = solution.bearing
+        self.solution.rng = solution.rng
+        self.solution.course = solution.course
+        self.solution.speed = solution.speed
         self.course_vectors[0] = CourseVector(self.solution.course, self.solution.speed, 10)
 
     def __str__(self):
@@ -226,21 +246,34 @@ class Ownship:
 
 class Warship:
 
-    def __init__(self, ship_type, desig):
+    def __init__(self, ship_type, desig, ownship):
         self.id = 0
         self.ship_type = ship_type
         self.desig = desig
         self.coord = Coordinate(0, 0)
-        self.solution = Solution(0, 0, 0, 0)
+        self.solution = Solution(0, 0, 0, 0, 0, 0)
         self.course_vectors = []
         self.ship_ellipse = ShipEllipse(0, 0, 0, 0)
+        self.ownship = ownship
 
     def set_solution(self, solution):
-        self.solution = solution
+        self.solution.bearing = solution.bearing
+        self.solution.rng = solution.rng
+        self.solution.course = solution.course
+        self.solution.speed = solution.speed
+        [cpa_range, cpa_time] = cpa(self.ownship, self)
+        self.solution.cpa_range = cpa_range
+        self.solution.cpa_time = cpa_time
         self.course_vectors.append(CourseVector(self.solution.course, self.solution.speed, 10))
 
     def update_solution(self, solution):
-        self.solution = solution
+        self.solution.bearing = solution.bearing
+        self.solution.rng = solution.rng
+        self.solution.course = solution.course
+        self.solution.speed = solution.speed
+        [cpa_range, cpa_time] = cpa(self.ownship, self)
+        self.solution.cpa_range = cpa_range
+        self.solution.cpa_time = cpa_time
         self.course_vectors[0] = CourseVector(self.solution.course, self.solution.speed, 10)
 
     def bind_ellipse(self, ship_ellipse):
@@ -383,7 +416,7 @@ class TargetDetailWindow(QDialog):
 
     def get_inputs(self):
         solution = Solution(float(self.bearing.text()), float(self.rng.text()), float(self.course.text()),
-                            float(self.speed.text()))
+                            float(self.speed.text()), 0, 0)
         return solution
 
 
@@ -400,6 +433,9 @@ class ShipEllipse(QGraphicsEllipseItem):
         if self.w.exec():
             solution = self.w.get_inputs()
             self.warship.update_solution(solution)
+            [cpa_range, cpa_time] = cpa(self.ownship, self.warship)
+            self.warship.solution.cpa_range = cpa_range
+            self.warship.solution.cpa_time = cpa_time
 
             # now calculate the ellipse movement
             # get coordinates based on bearing and range
@@ -434,6 +470,9 @@ class ShipEllipse(QGraphicsEllipseItem):
 
             self.warship.solution.rng = range_to_target(self.ownship, self.warship)
             self.warship.solution.bearing = bearing_to_target(self.ownship, self.warship)
+            [cpa_range, cpa_time] = cpa(self.ownship, self.warship)
+            self.warship.solution.cpa_range = cpa_range
+            self.warship.solution.cpa_time = cpa_time
 
     def hoverMoveEvent(self, event):
         self.setToolTip(self.warship.tooltip())
@@ -474,7 +513,7 @@ class VehicleSummaryModel(QAbstractTableModel):
     def __init__(self, data, *args):
         QAbstractTableModel.__init__(self, *args)
         self.data = data
-        self.header = ['ID', 'Desig', 'BRG', 'RNG', 'CRS', 'SPD']
+        self.header = ['ID', 'Desig', 'BRG', 'RNG', 'CRS', 'SPD', 'CPAr', 'CPAt']
         self.setDataList(data)
         self.timer = QTimer()
         self.timer.timeout.connect(self.updateModel)
@@ -494,18 +533,25 @@ class VehicleSummaryModel(QAbstractTableModel):
     def data(self, index, role):
         if not index.isValid():
             return None
-        if index.column() == 0:
+        if index.column() == 0: #id
             value = str(self.data[index.row()].id)
-        elif index.column() == 1:
+        elif index.column() == 1: #desig
             value = self.data[index.row()].desig
-        elif index.column() == 2:
+        elif index.column() == 2: #brg
             value = '{0}'.format(self.data[index.row()].solution.bearing)
-        elif index.column() == 3:
+        elif index.column() == 3: #rng
             value = str(self.data[index.row()].solution.rng)
-        elif index.column() == 4:
+        elif index.column() == 4: #course
             value = str(self.data[index.row()].solution.course)
-        elif index.column() == 5:
+        elif index.column() == 5: #speed
             value = str(self.data[index.row()].solution.speed)
+        elif index.column() == 6: #cpar
+            value = str(round(self.data[index.row()].solution.cpa_range))
+        elif index.column() == 7: #cpat
+            cpa_time = self.data[index.row()].solution.cpa_time
+            minutes = cpa_time % 60
+            seconds = (cpa_time * 60) % 60
+            value = '{0}:{0}'.format(minutes, seconds)
         return value
 
     def setData(self, index, value):
@@ -523,7 +569,7 @@ class VehicleSummaryModel(QAbstractTableModel):
         return len(self.data)
 
     def columnCount(self, parent):
-        return 6
+        return 8
 
 
 class Window(QMainWindow):
@@ -537,8 +583,8 @@ class Window(QMainWindow):
         self.width = 1800
         self.height = 1000
         self.ownship = Ownship()
-        self.warship1 = Warship(None, "A")
-        self.warship2 = Warship(None, "B")
+        self.warship1 = Warship(None, "A", None)
+        self.warship2 = Warship(None, "B", None)
 
         self.scene = QGraphicsScene()
         self.blueBrush = QBrush(Qt.blue)
@@ -577,7 +623,7 @@ class Window(QMainWindow):
         ownship_ellipse.setBrush(self.cyanBrush)
         ownship_ellipse.setAcceptHoverEvents(True)
         ownship_ellipse.setToolTip("Ownship")
-        solution = Solution(0, 0, 0, 3.5)
+        solution = Solution(0, 0, 0, 3.5, 0, 0)
         self.ownship.set_solution(solution)
         ownship_ellipse.bind_warship(self.ownship)
         ownship_ellipse.bind_ownship(self.ownship)
@@ -588,12 +634,13 @@ class Window(QMainWindow):
         self.scene.addItem(ownship_ellipse.course_lines[0].arrow_head)
 
         warship1_ellipse = ShipEllipse(-100, -600, 20, 20)
+        self.warship1.ownship = self.ownship
         self.warship1.bind_ellipse(warship1_ellipse)
         self.warship1.coord.lat = -100
         self.warship1.coord.lon = -600
         solution = Solution(bearing_to_target(self.ownship, self.warship1),
                             range_to_target(self.ownship, self.warship1),
-                            200, 27)
+                            200, 27, 0, 0)
         self.warship1.set_solution(solution)
         warship1_ellipse.bind_warship(self.warship1)
         warship1_ellipse.bind_ownship(self.ownship)
@@ -608,12 +655,13 @@ class Window(QMainWindow):
         self.scene.addItem(warship1_ellipse.course_lines[0].arrow_head)
 
         warship2_ellipse = ShipEllipse(100, -600, 20, 20)
+        self.warship2.ownship = self.ownship
         self.warship2.bind_ellipse(warship2_ellipse)
         self.warship2.coord.lat = 100
         self.warship2.coord.lon = -600
         solution = Solution(bearing_to_target(self.ownship, self.warship2),
                             range_to_target(self.ownship, self.warship2),
-                            160, 20)
+                            160, 20, 0, 0)
         self.warship2.set_solution(solution)
         warship2_ellipse.bind_warship(self.warship2)
         warship2_ellipse.bind_ownship(self.ownship)
