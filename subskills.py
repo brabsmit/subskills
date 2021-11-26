@@ -1,19 +1,24 @@
 import sys
 
 from PyQt5.Qt import Qt
-from PyQt5.QtCore import QPropertyAnimation, QObject, QRectF, pyqtSignal, pyqtProperty, QAbstractTableModel, QTimer
+from PyQt5.QtCore import QPropertyAnimation, QObject, QRectF, pyqtSignal, pyqtProperty, QAbstractTableModel, QTimer, \
+    QPointF
 from PyQt5.QtGui import QPen, QBrush, QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsItem, \
     QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QGraphicsLineItem, QTableView, \
     QAbstractScrollArea
 from numpy import sqrt, arctan2, degrees, sin, cos, radians, pi
 
-
 # TODO: background
 # TODO: target class
 
 # TODO: click and drag CourseLine
-# TODO: add more than one CourseLine
+
+
+YARD_TO_PIXEL = 600/6082
+PIXEL_TO_YARD = 6082/600
+
+KTS_TO_RANGE_RATE = 100 / 3 / 60 / 1000
 
 
 def range_to_target(ownship, target):
@@ -215,6 +220,7 @@ class ShipDatabase:
             warship.id = self.total
             self.warships.append(warship)
             self.total += 1
+
 
 class Ownship:
 
@@ -425,6 +431,11 @@ class ShipEllipse(QGraphicsEllipseItem):
     def __init__(self, *args, **kwargs):
         super(ShipEllipse, self).__init__(*args, **kwargs)
         self.course_lines = []
+        self.is_bound = False
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.move_ship)
+        self.update_rate = 100
+        self.timer.start(self.update_rate)
 
     def mouseDoubleClickEvent(self, event):
         self.w = TargetDetailWindow(self.warship)
@@ -453,6 +464,28 @@ class ShipEllipse(QGraphicsEllipseItem):
             self.moveBy(dx, dy)
             print(self.warship)
 
+    def move_ship(self):
+        if self.is_bound:
+            range_rate = self.warship.solution.speed * KTS_TO_RANGE_RATE * self.update_rate
+
+            if 0 <= self.warship.solution.course < 90:
+                dy = -1 * range_rate * (1 - sin(self.warship.solution.course)) * YARD_TO_PIXEL
+                dx = range_rate * (cos(self.warship.solution.course + 90)) * YARD_TO_PIXEL
+
+            elif 90 <= self.warship.solution.course < 180:
+                dy = -1 * range_rate * sin(self.warship.solution.course + 90) * YARD_TO_PIXEL
+                dx = range_rate * cos(self.warship.solution.course + 90) * YARD_TO_PIXEL
+
+            elif 180 <= self.warship.solution.course < 270:
+                dy = range_rate * sin(self.warship.solution.course + 90) * YARD_TO_PIXEL
+                dx = -1 * range_rate * cos(self.warship.solution.course + 90) * YARD_TO_PIXEL
+
+            elif 270 <= self.warship.solution.course < 360:
+                dy = -1 * range_rate * (1 - sin(self.warship.solution.course - 180)) * YARD_TO_PIXEL
+                dx = range_rate * cos(self.warship.solution.course - 90) * YARD_TO_PIXEL
+
+            self.moveBy(dx, dy)
+
     def mouseReleaseEvent(self, event):
         super(ShipEllipse, self).mouseReleaseEvent(event)
         pass
@@ -479,33 +512,12 @@ class ShipEllipse(QGraphicsEllipseItem):
 
     def bind_warship(self, warship):
         self.warship = warship
+        self.is_bound = True
         self.course_lines.append(CourseLine(warship))
 
     def bind_ownship(self, ownship):
         self.ownship = ownship
-
-
-class ManagerRectAnimation(QObject):
-    rectChanged = pyqtSignal(QRectF)
-
-    def __init__(self, parent=None):
-        super(ManagerRectAnimation, self).__init__(parent)
-        self._rect = QRectF()
-
-        self._animation = QPropertyAnimation(self, targetObject=self, propertyName=b"rect", duration=6000)
-
-    @property
-    def animation(self):
-        return self._animation
-
-    def rect(self):
-        return self._rect
-
-    def setRect(self, r):
-        self._rect = r
-        self.rectChanged.emit(r)
-
-    rect = pyqtProperty(QRectF, fget=rect, fset=setRect, notify=rectChanged)
+        self.is_bound = True
 
 
 class VehicleSummaryModel(QAbstractTableModel):
@@ -682,12 +694,6 @@ class Window(QMainWindow):
         warship2_ellipse.course_lines[0].arrow_head.setFlag(QGraphicsItem.ItemIsMovable)
 
         self.scene.setSceneRect(-900, -300, 1800, 1000)
-
-        #manager_animation = ManagerRectAnimation(self.graphic_view)
-        #manager_animation.rectChanged.connect(ownship_ellipse.setRect)
-        #manager_animation.animation.setStartValue(QPointF(self.ownship.coord.lat, self.ownship.coord.lon))
-        #manager_animation.animation.setEndValue(QPointF(self.ownship.coord.lat, self.ownship.coord.lon))
-        #anager_animation.animation.start()
 
         self.vehicle_summary = VehicleSummaryModel([self.warship1, self.warship2])
         self.vehicle_table_view = QTableView()
