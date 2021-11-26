@@ -1,10 +1,15 @@
 import sys
 
+from PyQt5 import QtWidgets
 from PyQt5.Qt import Qt
+from PyQt5.QtCore import QPropertyAnimation, QRect, QPointF, QObject, QRectF, pyqtSignal, pyqtProperty, \
+    QAbstractTableModel, QModelIndex, QTimer
 from PyQt5.QtGui import QPen, QBrush, QFont
 from PyQt5.QtWidgets import QApplication, QMainWindow, QGraphicsScene, QGraphicsView, QGraphicsItem, \
-    QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QGraphicsLineItem
+    QGraphicsEllipseItem, QDialog, QFormLayout, QDialogButtonBox, QLineEdit, QGraphicsLineItem, QWidget, QTableView, \
+    QAbstractItemView, QVBoxLayout, QCheckBox, QTableWidget, QTableWidgetItem, QAbstractScrollArea
 from numpy import sqrt, arctan2, degrees, sin, cos, radians
+import operator
 
 
 # TODO: background
@@ -184,6 +189,19 @@ class CourseVector:
         return "D-{0}, rho-{1}, phi-{2}".format(self.duration, self.length, self.direction)
 
 
+class ShipDatabase:
+
+    def __init__(self):
+        self.total = 0
+        self.warships = []
+
+    def add(self, warships):
+        if type(warships) is not list: to_select = [warships]
+        for warship in warships:
+            warship.id = self.total
+            self.warships.append(warship)
+            self.total += 1
+
 class Ownship:
 
     def __init__(self):
@@ -209,6 +227,7 @@ class Ownship:
 class Warship:
 
     def __init__(self, ship_type, desig):
+        self.id = 0
         self.ship_type = ship_type
         self.desig = desig
         self.coord = Coordinate(0, 0)
@@ -228,7 +247,7 @@ class Warship:
         self.ship_ellipse = ship_ellipse
 
     def __str__(self):
-        return "<Warship {0}> {1} ({2}, {3})".format(self.desig, self.solution, self.coord.lat,
+        return "<Warship {0}>[{1}] {2} ({3}, {4})".format(self.desig, self.id, self.solution, self.coord.lat,
                                                      self.coord.lon)
 
     def tooltip(self):
@@ -317,10 +336,11 @@ class CourseLine(QGraphicsLineItem):
 
         end_coord = Coordinate(lat, lon)
 
-        (bearing, range) = coordinates_to_bearing_range(self.start_coord, end_coord)
+        (bearing, rng) = coordinates_to_bearing_range(self.start_coord, end_coord)
         self.parent.course_vectors[0].direction = bearing
         self.parent.solution.course = bearing
-        self.parent.course_vectors[0].length = range
+        self.parent.course_vectors[0].length = rng
+        print("{0}".format(rng))
 
         self.translate_line()
 
@@ -426,6 +446,86 @@ class ShipEllipse(QGraphicsEllipseItem):
         self.ownship = ownship
 
 
+class ManagerRectAnimation(QObject):
+    rectChanged = pyqtSignal(QRectF)
+
+    def __init__(self, parent=None):
+        super(ManagerRectAnimation, self).__init__(parent)
+        self._rect = QRectF()
+
+        self._animation = QPropertyAnimation(self, targetObject=self, propertyName=b"rect", duration=6000)
+
+    @property
+    def animation(self):
+        return self._animation
+
+    def rect(self):
+        return self._rect
+
+    def setRect(self, r):
+        self._rect = r
+        self.rectChanged.emit(r)
+
+    rect = pyqtProperty(QRectF, fget=rect, fset=setRect, notify=rectChanged)
+
+
+class VehicleSummaryModel(QAbstractTableModel):
+
+    def __init__(self, data, *args):
+        QAbstractTableModel.__init__(self, *args)
+        self.data = data
+        self.header = ['ID', 'Desig', 'BRG', 'RNG', 'CRS', 'SPD']
+        self.setDataList(data)
+        self.timer = QTimer()
+        self.timer.timeout.connect(self.updateModel)
+        self.timer.start(1000)
+
+    def setDataList(self, data):
+        self.data = data
+        self.layoutAboutToBeChanged.emit()
+        self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+        self.layoutChanged.emit()
+
+    def updateModel(self):
+        self.layoutAboutToBeChanged.emit()
+        self.dataChanged.emit(self.createIndex(0, 0), self.createIndex(self.rowCount(0), self.columnCount(0)))
+        self.layoutChanged.emit()
+
+    def data(self, index, role):
+        if not index.isValid():
+            return None
+        if index.column() == 0:
+            value = str(self.data[index.row()].id)
+        elif index.column() == 1:
+            value = self.data[index.row()].desig
+        elif index.column() == 2:
+            value = '{0}'.format(self.data[index.row()].solution.bearing)
+        elif index.column() == 3:
+            value = str(self.data[index.row()].solution.rng)
+        elif index.column() == 4:
+            value = str(self.data[index.row()].solution.course)
+        elif index.column() == 5:
+            value = str(self.data[index.row()].solution.speed)
+        return value
+
+    def setData(self, index, value):
+        if not index.isValid():
+            return False
+        self.dataChanged.emit(index, index)
+        return True
+
+    def headerData(self, col, orientation, role):
+        if orientation == Qt.Horizontal and role == Qt.DisplayRole:
+            return self.header[col]
+        return None
+
+    def rowCount(self, parent):
+        return len(self.data)
+
+    def columnCount(self, parent):
+        return 6
+
+
 class Window(QMainWindow):
 
     def __init__(self):
@@ -450,6 +550,9 @@ class Window(QMainWindow):
         self.font = QFont('Times', 8)
         self.font.setBold(True)
 
+        self.ship_database = ShipDatabase()
+        self.ship_database.add([self.warship1, self.warship2])
+
         self.init_window()
 
     def init_window(self):
@@ -461,8 +564,8 @@ class Window(QMainWindow):
         self.show()
 
     def create_graphic_view(self):
-        graphic_view = QGraphicsView(self.scene, self)
-        graphic_view.setGeometry(0, 0, 1800, 1800)
+        self.graphic_view = QGraphicsView(self.scene, self)
+        self.graphic_view.setGeometry(0, 0, 1800, 1800)
 
         self.shapes()
 
@@ -532,6 +635,19 @@ class Window(QMainWindow):
 
         self.scene.setSceneRect(-900, -300, 1800, 1000)
 
+        #manager_animation = ManagerRectAnimation(self.graphic_view)
+        #manager_animation.rectChanged.connect(ownship_ellipse.setRect)
+        #manager_animation.animation.setStartValue(QPointF(self.ownship.coord.lat, self.ownship.coord.lon))
+        #manager_animation.animation.setEndValue(QPointF(self.ownship.coord.lat, self.ownship.coord.lon))
+        #anager_animation.animation.start()
+
+        self.vehicle_summary = VehicleSummaryModel([self.warship1, self.warship2])
+        self.vehicle_table_view = QTableView()
+        self.vehicle_table_view.setModel(self.vehicle_summary)
+        self.vehicle_table_view.setSizeAdjustPolicy(QAbstractScrollArea.AdjustToContents)
+        self.vehicle_table_view.resizeRowsToContents()
+        self.vehicle_table_view.show()
+
         print(self.ownship)
         print(self.warship1)
         print(self.warship2)
@@ -540,6 +656,7 @@ class Window(QMainWindow):
 def main():
     app = QApplication(sys.argv)
     window = Window()
+
     sys.exit(app.exec())
 
 
